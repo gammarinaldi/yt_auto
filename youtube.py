@@ -2,14 +2,20 @@ import undetected_chromedriver as uc
 import threading
 import json
 import time
+import traceback
 import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
-from concurrent.futures import ThreadPoolExecutor
+from selenium import webdriver
+from selenium_stealth import stealth
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
 DELAY = 10 # seconds
 
@@ -35,19 +41,53 @@ confirm_delete_history_btn = '//button[@class="VfPpkd-LgbsSe VfPpkd-LgbsSe-OWXEX
 skip_ads_path = '/html/body/ytd-app/div[1]/ytd-page-manager/ytd-watch-flexy/div[5]/div[1]/div/div[1]/div[2]/div/div/ytd-player/div/div/div[17]/div/div[3]/div/div[2]/span/button'
 
 def users_path():
-    return r'/Users/gamarinaldi/Desktop/sandbox/python/users.json'
+    return r'C:\Users\Gama\Desktop\yt_auto\users.json'
 
 def get_driver():
     threadLocal = threading.local()
     driver = getattr(threadLocal, 'driver', None)
     if driver is None:
-        options = uc.ChromeOptions()
-        options.headless=True
-        options.add_argument('--headless')
-        driver = uc.Chrome(options=options)
+        chrome_options = uc.ChromeOptions()
+
+        # All arguments to hide robot automation trackers
+        # chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--no-service-autorun")
+        chrome_options.add_argument("--no-default-browser-check")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-popup-blocking")
+        chrome_options.add_argument("--profile-directory=Default")
+        chrome_options.add_argument("--disable-plugins-discovery")
+        chrome_options.add_argument("--incognito")
+
+        driver = uc.Chrome(options=chrome_options, port=9000)
+
         setattr(threadLocal, 'driver', driver)
 
     return driver
+
+# def get_driver():
+#     options = Options()
+#     options.add_argument("start-maximized")
+#     # options.add_argument("--headless")
+
+#     # Chrome is controlled by automated test software
+#     options.add_experimental_option("excludeSwitches", ["enable-automation"])
+#     options.add_experimental_option('useAutomationExtension', False)
+#     s = Service('C:\\Users\\Gama\\Desktop\\yt_auto\\chromedriver.exe')
+#     driver = webdriver.Chrome(service=s, options=options)
+
+#     # Selenium Stealth settings
+#     stealth(driver,
+#             languages=["en-US", "en"],
+#             vendor="Google Inc.",
+#             platform="Win32",
+#             webgl_vendor="Intel Inc.",
+#             renderer="Intel Iris OpenGL Engine",
+#             fix_hairline=True,
+#             )
+
+#     return driver
 
 def get_users():
     f = open(users_path())
@@ -72,8 +112,9 @@ def input_email(email, driver):
     try:
         print("Try input email")
         WebDriverWait(driver, DELAY).until(EC.presence_of_element_located((By.XPATH, email_input)))
-        driver.find_element(By.XPATH, email_input).send_keys(email)
-        click_next(email, driver)
+        eml = driver.find_element(By.XPATH, email_input)
+        eml.send_keys(email)
+        eml.send_keys(Keys.RETURN)
     except TimeoutException:
         msg = email + ": input email failed!"
         print(msg)
@@ -82,8 +123,9 @@ def input_pass(email, password, driver):
     try:
         print("Try input password")
         WebDriverWait(driver, DELAY).until(EC.presence_of_element_located((By.XPATH, pass_input)))
-        driver.find_element(By.XPATH, pass_input).send_keys(password)
-        click_next(email, driver)
+        pwd = driver.find_element(By.XPATH, pass_input)
+        pwd.send_keys(password)
+        pwd.send_keys(Keys.RETURN)
     except TimeoutException:
         msg = email + ": input password failed!"
         print(msg)
@@ -172,6 +214,15 @@ def skip_ads(driver):
         if time.time() > timeout:
             break
 
+def check_login(email, driver):
+    try:
+        WebDriverWait(driver, DELAY).until(EC.presence_of_element_located((By.XPATH, f'//*[@title="{email}"]')))
+        msg = email + ": login success!"
+        print(msg)
+    except TimeoutException:
+        msg = email + ": login failed!"
+        print(msg)
+
 def delete_cache(driver):
     # Create a separate tab than the main one
     driver.execute_script("window.open('')")
@@ -217,6 +268,20 @@ def call(user, url):
     input_pass(email, password, driver)
 
     time.sleep(3)
+
+    print(email + ": Open youtube homepage")
+    open_homepage(driver)
+
+    time.sleep(3)
+
+    print(email + ": Open profile")
+    open_profile(email, driver)
+
+    time.sleep(3)
+
+    check_login(email, driver)
+
+    time.sleep(3600)
 
     print(email + ": Open playlist")
     open_playlist(driver, url)
@@ -272,6 +337,8 @@ def call(user, url):
     print(email + ": Clear browser cache")
     delete_cache(driver)
 
+    driver.quit()
+
 if __name__ == '__main__':
     for url in playlist_urls:  
         with ThreadPoolExecutor(max_workers=10) as executor:
@@ -279,13 +346,12 @@ if __name__ == '__main__':
             for future in concurrent.futures.as_completed(future_to_user):
                 user = future_to_user[future]
                 try:
-                    if future.done():
-                        print(user['email'] + ": process async buy order completed!")
-                        if future.result() == None:
-                            print("Result success")
-                        else:
-                            print("Result failed")
+                    if future.result() == None:
+                        print("Result success")
                     else:
-                        print(user['email'] + ": process async buy order failed!")
-                except Exception:
+                        print("Result failed")
+                        print(future.result())
+                except Exception as error:
                     print("Error occured")
+                    print(error)
+                    traceback.print_exc()
